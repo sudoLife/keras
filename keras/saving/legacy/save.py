@@ -265,7 +265,7 @@ def load_model(filepath, custom_objects=None, compile=True, options=None):
 def save_weights(
     model, filepath, overwrite=True, save_format=None, options=None
 ):
-    """Saves all layer weights.
+  """Saves all layer weights.
 
     Either saves in HDF5 or in TensorFlow format based on the `save_format`
     argument.
@@ -325,63 +325,66 @@ def save_weights(
         ImportError: If `h5py` is not available when attempting to save in
             HDF5 format.
     """
-    model._assert_weights_created()
-    filepath = io_utils.path_to_string(filepath)
-    filepath_is_h5 = saving_utils.is_hdf5_filepath(filepath)
-    if save_format is None:
-        if filepath_is_h5:
-            save_format = "h5"
-        else:
-            save_format = "tf"
+  model._assert_weights_created()
+  filepath = io_utils.path_to_string(filepath)
+  filepath_is_h5 = saving_utils.is_hdf5_filepath(filepath)
+  if save_format is None:
+    if filepath_is_h5:
+      save_format = "h5"
     else:
-        user_format = save_format.lower().strip()
-        if user_format in ("tensorflow", "tf"):
-            save_format = "tf"
-        elif user_format in ("hdf5", "h5", "keras"):
-            save_format = "h5"
-        else:
-            raise ValueError(
+      save_format = "tf"
+  else:
+    user_format = save_format.lower().strip()
+    if user_format in ("tensorflow", "tf"):
+      save_format = "tf"
+    elif user_format in ("hdf5", "h5", "keras"):
+      save_format = "h5"
+    else:
+      raise ValueError(
                 f"Unknown format. Received: `save_format`={save_format}. "
                 'Was expecting one of {"tf", "h5"}.'
             )
-    if save_format == "tf" and filepath_is_h5:
-        raise ValueError(
+  if save_format == "tf" and filepath_is_h5:
+    raise ValueError(
             'save_weights got save_format="tf"/"tensorflow", but the '
             f"filepath ({filepath}) looks like an HDF5 file. "
             'Omit the ".h5"/".keras" when saving in TensorFlow format.'
         )
 
-    if save_format == "h5" and h5py is None:
-        raise ImportError(
+  if save_format == "h5" and h5py is None:
+    raise ImportError(
             "`save_weights` requires h5py when saving in hdf5, but h5py is "
             "not available. Try installing h5py package."
         )
-    if save_format == "tf":
-        check_filepath = filepath + ".index"
-    else:
-        check_filepath = filepath
-    # If file exists and should not be overwritten:
-    if not overwrite and os.path.isfile(check_filepath):
-        proceed = io_utils.ask_to_proceed_with_overwrite(check_filepath)
-        if not proceed:
-            return
-    if save_format == "h5":
-        with h5py.File(filepath, "w") as f:
-            hdf5_format.save_weights_to_hdf5_group(f, model)
-    else:
-        if not tf.executing_eagerly():
-            # Call `get_session` to initialize any uninitialized variables.
-            backend.get_session()
-        model._checkpoint.write(filepath, options=options)
+  if save_format == "tf":
+    check_filepath = filepath + ".index"
+  else:
+    check_filepath = filepath
+  # If file exists and should not be overwritten:
+  if not overwrite and os.path.isfile(check_filepath):
+    proceed = io_utils.ask_to_proceed_with_overwrite(check_filepath)
+    if not proceed:
+      return
+  if save_format == "h5":
+    with h5py.File(filepath, "w") as f:
+      hdf5_format.save_weights_to_hdf5_group(f, model)
+  else:
+    if not tf.executing_eagerly():
+      # Call `get_session` to initialize any uninitialized variables.
+      backend.get_session()
 
-        # Record this checkpoint so it's visible from
-        # tf.train.latest_checkpoint.
-        tf.__internal__.train.update_checkpoint_state(
-            save_dir=os.path.dirname(filepath),
-            model_checkpoint_path=filepath,
-            save_relative_paths=True,
-            all_model_checkpoint_paths=[filepath],
-        )
+    def write_done_callback(filepath):
+      # Record this checkpoint so it's visible from
+      # tf.train.latest_checkpoint.
+      tf.__internal__.train.update_checkpoint_state(
+                save_dir=os.path.dirname(filepath),
+                model_checkpoint_path=filepath,
+                save_relative_paths=True,
+                all_model_checkpoint_paths=[filepath],
+            )
+
+    model._checkpoint._write(
+        filepath, options=options, write_done_callback=write_done_callback)
 
 
 def load_weights(
