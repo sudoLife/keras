@@ -14,6 +14,7 @@
 # ==============================================================================
 """Python utilities required by Keras."""
 
+import abc
 import binascii
 import codecs
 import importlib
@@ -21,6 +22,7 @@ import marshal
 import os
 import re
 import sys
+import threading
 import time
 import types as python_types
 
@@ -85,7 +87,6 @@ def func_load(code, defaults=None, closure=None, globs=None):
         """
 
         def dummy_fn():
-
             value  # just access it so it gets captured in .__closure__
 
         cell_value = dummy_fn.__closure__[0]
@@ -555,3 +556,69 @@ class LazyLoader(python_types.ModuleType):
     def __getattr__(self, item):
         module = self._load()
         return getattr(module, item)
+
+
+@keras_export("keras.utils.TimedThread", v1=[])
+class TimedThread(threading.Thread):
+    """Time-based interval Threads.
+
+    Args:
+      interval: the interval, in seconds, to wait between calls to the
+        thread function.
+      **kwargs: additional args that are passed to `threading.Thread`.
+
+    Examples:
+
+    ```python
+    class TimedLogIterations(tf.keras.utils.TimedThread):
+        # Logs Optimizer iterations every x seconds
+
+        def __init__(self, model, interval, **kwargs):
+            self.model = model
+            super().__init__(interval, **kwargs)
+
+        def call(self):
+            try:
+                opt_iterations = self.model.optimizer.iterations.numpy()
+                print(f"Epoch: {epoch}, Optimizer Iterations: {opt_iterations}")
+            except Exception as e:
+                print(str(e))  # To prevent thread from getting killed
+
+    # Explicitly start and stop the thread
+    timed_log_iterations = TimedLogIterations(model, interval=0.5)
+    timed_log_iterations.start()
+    model.fit()
+    timed_log_iterations.stop()
+
+    # Or use via Context Manager
+    with TimedLogIterations(model, interval=0.5):
+        model.fit(x, y)
+    ```
+
+    """
+
+    def __init__(self, interval, **kwargs):
+        self.interval = interval
+        daemon = kwargs.pop("daemon", True)
+        self.event = threading.Event()
+        self._stop = False
+        super().__init__(target=self._call_on_interval, daemon=daemon, **kwargs)
+
+    def _call_on_interval(self):
+        # Runs indefinitely once thread is started
+        while not self.event.is_set():
+            time.sleep(self.interval)
+            self.call()
+
+    def __enter__(self, *args, **kwargs):
+        """Start the thread."""
+        self.start()
+
+    def __exit__(self, *args, **kwargs):
+        """Stop the thread."""
+        self.event.set()
+
+    @abc.abstractmethod
+    def call(self):
+        """User-defined behavior that is called in the thread."""
+        raise NotImplementedError("Must be implemented in subclasses")
